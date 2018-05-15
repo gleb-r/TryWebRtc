@@ -17,6 +17,9 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.RECORD_AUDIO)
     }
 
+    lateinit var peerConnectionFactory: PeerConnectionFactory
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -30,26 +33,27 @@ class MainActivity : AppCompatActivity() {
                 PeerConnectionFactory.InitializationOptions.builder(this)
                         .setEnableVideoHwAcceleration(true)
                         .createInitializationOptions())
-        val peerConnectionFactory = PeerConnectionFactory(PeerConnectionFactory.Options())
+       peerConnectionFactory = PeerConnectionFactory(PeerConnectionFactory.Options())
 
         val videoCapturer: VideoCapturer? = createVideoCapturer()
 
-        val mediaConstraints = MediaConstraints()
+        val audioConstraints = MediaConstraints()
+        val videoConstraints = MediaConstraints()
 
         val videoSource = peerConnectionFactory.createVideoSource(videoCapturer)
-        val videoTrack = peerConnectionFactory.createVideoTrack("100", videoSource)
+        val localVideoTrack = peerConnectionFactory.createVideoTrack("100", videoSource)
 
-        val audioSource = peerConnectionFactory.createAudioSource(mediaConstraints)
-        val audioTrack = peerConnectionFactory.createAudioTrack("101", audioSource)
+        val audioSource = peerConnectionFactory.createAudioSource(audioConstraints)
+        val localAudioTrack = peerConnectionFactory.createAudioTrack("101", audioSource)
 
         videoCapturer?.startCapture(960, 720, 30)
 
-        surfaceViewRenderer.setMirror(true)
+        localViewRenderer.setMirror(true)
 
         val rootEglBase = EglBase.create()
-        surfaceViewRenderer.init(rootEglBase.eglBaseContext, null)
+        localViewRenderer.init(rootEglBase.eglBaseContext, null)
 
-        videoTrack.addRenderer(VideoRenderer(surfaceViewRenderer))
+        localVideoTrack.addRenderer(VideoRenderer(localViewRenderer))
 
     }
 
@@ -68,4 +72,16 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     fun Context.areAllPermissionsGranted(vararg permission: String) = permission.all { checkIsPermissionGranted(it) }
+
+   private fun call() {
+       val iceServers =  mutableListOf<PeerConnection.IceServer>()
+
+       val sdpConstraints = MediaConstraints()
+       sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("offerToReceiveAudio","true"))
+       sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("offerToReceiveVideo","true"))
+
+       val localPeer = peerConnectionFactory.createPeerConnection(iceServers,sdpConstraints, object: CustomPeerConnectionObserver("remotePeerCreation"))
+
+   }
+
 }
