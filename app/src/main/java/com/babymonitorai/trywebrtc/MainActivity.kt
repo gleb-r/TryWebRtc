@@ -6,7 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.support.v4.content.ContextCompat
 import android.support.v7.app.AppCompatActivity
-import kotlinx.android.synthetic.main.activity_main.*
+import com.babymonitorai.trywebrtc.R.id.localViewRenderer
 import org.webrtc.*
 
 class MainActivity : AppCompatActivity() {
@@ -18,6 +18,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     lateinit var peerConnectionFactory: PeerConnectionFactory
+    lateinit var localPeer: PeerConnection
+    lateinit var remotePeer: PeerConnection
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,7 +35,7 @@ class MainActivity : AppCompatActivity() {
                 PeerConnectionFactory.InitializationOptions.builder(this)
                         .setEnableVideoHwAcceleration(true)
                         .createInitializationOptions())
-       peerConnectionFactory = PeerConnectionFactory(PeerConnectionFactory.Options())
+        peerConnectionFactory = PeerConnectionFactory(PeerConnectionFactory.Options())
 
         val videoCapturer: VideoCapturer? = createVideoCapturer()
 
@@ -73,15 +75,44 @@ class MainActivity : AppCompatActivity() {
 
     fun Context.areAllPermissionsGranted(vararg permission: String) = permission.all { checkIsPermissionGranted(it) }
 
-   private fun call() {
-       val iceServers =  mutableListOf<PeerConnection.IceServer>()
+    private fun call() {
+        val iceServers = mutableListOf<PeerConnection.IceServer>()
 
-       val sdpConstraints = MediaConstraints()
-       sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("offerToReceiveAudio","true"))
-       sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("offerToReceiveVideo","true"))
+        val sdpConstraints = MediaConstraints()
+        sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("offerToReceiveAudio", "true"))
+        sdpConstraints.mandatory.add(MediaConstraints.KeyValuePair("offerToReceiveVideo", "true"))
 
-       val localPeer = peerConnectionFactory.createPeerConnection(iceServers,sdpConstraints, object: CustomPeerConnectionObserver("remotePeerCreation"))
+        localPeer = peerConnectionFactory.createPeerConnection(
+                iceServers,
+                sdpConstraints,
+                object : CustomPeerConnectionObserver("localPeerConnection") {
+                    override fun onIceCandidate(iceCandidate: IceCandidate?) {
+                        super.onIceCandidate(iceCandidate)
+                        onIceCandidateReceived(localPeer, iceCandidate)
+                    }
+                })
+remotePeer = peerConnectionFactory.createPeerConnection(
+        iceServers,
+        sdpConstraints,
+        object : CustomPeerConnectionObserver("remotePeerConnection"){
+            override fun onIceCandidate(iceCandidate: IceCandidate?) {
+                super.onIceCandidate(iceCandidate)
+                onIceCandidateReceived(remotePeer,iceCandidate)
+            }
 
-   }
+            override fun onAddStream(mediaStream: MediaStream?) {
+                super.onAddStream(mediaStream)
+                gotRemoteStream(mediaStream)
+            }
+        })
+    }
+
+    private fun gotRemoteStream(mediaStream: MediaStream?) {
+
+    }
+
+    private fun onIceCandidateReceived(localPeer: PeerConnection, iceCandidate: IceCandidate?) {
+
+    }
 
 }
