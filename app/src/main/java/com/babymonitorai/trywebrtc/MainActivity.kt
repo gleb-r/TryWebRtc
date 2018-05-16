@@ -20,6 +20,8 @@ class MainActivity : AppCompatActivity() {
     lateinit var peerConnectionFactory: PeerConnectionFactory
     lateinit var localPeer: PeerConnection
     lateinit var remotePeer: PeerConnection
+    lateinit var localVideoTrack:VideoTrack
+    lateinit var localAudioTrack:AudioTrack
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,10 +45,10 @@ class MainActivity : AppCompatActivity() {
         val videoConstraints = MediaConstraints()
 
         val videoSource = peerConnectionFactory.createVideoSource(videoCapturer)
-        val localVideoTrack = peerConnectionFactory.createVideoTrack("100", videoSource)
+        localVideoTrack = peerConnectionFactory.createVideoTrack("100", videoSource)
 
         val audioSource = peerConnectionFactory.createAudioSource(audioConstraints)
-        val localAudioTrack = peerConnectionFactory.createAudioTrack("101", audioSource)
+        localAudioTrack = peerConnectionFactory.createAudioTrack("101", audioSource)
 
         videoCapturer?.startCapture(960, 720, 30)
 
@@ -91,18 +93,29 @@ class MainActivity : AppCompatActivity() {
                         onIceCandidateReceived(localPeer, iceCandidate)
                     }
                 })
-remotePeer = peerConnectionFactory.createPeerConnection(
-        iceServers,
-        sdpConstraints,
-        object : CustomPeerConnectionObserver("remotePeerConnection"){
-            override fun onIceCandidate(iceCandidate: IceCandidate?) {
-                super.onIceCandidate(iceCandidate)
-                onIceCandidateReceived(remotePeer,iceCandidate)
-            }
+        remotePeer = peerConnectionFactory.createPeerConnection(
+                iceServers,
+                sdpConstraints,
+                object : CustomPeerConnectionObserver("remotePeerConnection") {
+                    override fun onIceCandidate(iceCandidate: IceCandidate?) {
+                        super.onIceCandidate(iceCandidate)
+                        onIceCandidateReceived(remotePeer, iceCandidate)
+                    }
 
-            override fun onAddStream(mediaStream: MediaStream?) {
-                super.onAddStream(mediaStream)
-                gotRemoteStream(mediaStream)
+                    override fun onAddStream(mediaStream: MediaStream?) {
+                        super.onAddStream(mediaStream)
+                        gotRemoteStream(mediaStream)
+                    }
+                })
+        val stream = peerConnectionFactory.createLocalMediaStream("102")
+        stream.addTrack(localAudioTrack)
+        stream.addTrack(localVideoTrack)
+        localPeer.addStream(stream)
+
+        localPeer.createOffer(object : CustomSdpObserver("localCreateOffer") {
+            override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                super.onCreateSuccess(sessionDescription)
+
             }
         })
     }
