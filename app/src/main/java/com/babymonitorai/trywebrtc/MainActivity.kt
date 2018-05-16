@@ -3,10 +3,12 @@ package com.babymonitorai.trywebrtc
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.support.v4.content.ContextCompat
 import android.support.v7.app.AppCompatActivity
-import com.babymonitorai.trywebrtc.R.id.localViewRenderer
+import android.view.View
+import kotlinx.android.synthetic.main.activity_main.*
 import org.webrtc.*
 
 class MainActivity : AppCompatActivity() {
@@ -14,14 +16,16 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private val premissions = arrayOf(
                 Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO)
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_NETWORK_STATE)
     }
 
     lateinit var peerConnectionFactory: PeerConnectionFactory
-    lateinit var localPeer: PeerConnection
-    lateinit var remotePeer: PeerConnection
-    lateinit var localVideoTrack:VideoTrack
-    lateinit var localAudioTrack:AudioTrack
+    var localPeer: PeerConnection? = null
+    var remotePeer: PeerConnection? = null
+    lateinit var localVideoTrack: VideoTrack
+    lateinit var localAudioTrack: AudioTrack
+
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,10 +33,31 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         if (!applicationContext.areAllPermissionsGranted(*premissions)) {
 
-            requestPermissions(arrayOf(Manifest.permission.CAMERA,
-                    Manifest.permission.RECORD_AUDIO), 1)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                requestPermissions(arrayOf(Manifest.permission.CAMERA,
+                        Manifest.permission.RECORD_AUDIO,
+                        Manifest.permission.ACCESS_NETWORK_STATE), 1)
+            }
         }
+        btnStart.setOnClickListener { start() }
+        btnCall.setOnClickListener{call()}
+        btnHangup.setOnClickListener { hangup() }
 
+        initVideos()
+
+//        videoCapturer?.startCapture(960, 720, 30)
+
+    }
+
+    private fun initVideos() {
+        val rootEglBase = EglBase.create()
+        localViewRenderer.init(rootEglBase.eglBaseContext, null)
+        remoteViewRenderer.init(rootEglBase.eglBaseContext, null)
+        localViewRenderer.setZOrderMediaOverlay(true)
+        remoteViewRenderer.setZOrderMediaOverlay(true)
+    }
+
+    private fun start() {
         PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(this)
                         .setEnableVideoHwAcceleration(true)
@@ -49,16 +74,10 @@ class MainActivity : AppCompatActivity() {
 
         val audioSource = peerConnectionFactory.createAudioSource(audioConstraints)
         localAudioTrack = peerConnectionFactory.createAudioTrack("101", audioSource)
-
-        videoCapturer?.startCapture(960, 720, 30)
-
-        localViewRenderer.setMirror(true)
-
-        val rootEglBase = EglBase.create()
-        localViewRenderer.init(rootEglBase.eglBaseContext, null)
+        localViewRenderer.visibility = View.VISIBLE
 
         localVideoTrack.addRenderer(VideoRenderer(localViewRenderer))
-
+        videoCapturer?.startCapture(960, 720, 30)
     }
 
     private fun createVideoCapturer() =
@@ -69,13 +88,9 @@ class MainActivity : AppCompatActivity() {
         val deviceNames = enumerator.deviceNames
         val cameraName = deviceNames.firstOrNull { enumerator.isFrontFacing(it) }
                 ?: deviceNames.firstOrNull { enumerator.isBackFacing(it) }
-        return cameraName?.let { enumerator.createCapturer(it, null) }
+        return cameraName?.let { enumerator.createCapturer(it, CustomCameraEventsHandler()) }
     }
 
-    fun Context.checkIsPermissionGranted(permission: String) =
-            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-
-    fun Context.areAllPermissionsGranted(vararg permission: String) = permission.all { checkIsPermissionGranted(it) }
 
     private fun call() {
         val iceServers = mutableListOf<PeerConnection.IceServer>()
@@ -110,22 +125,57 @@ class MainActivity : AppCompatActivity() {
         val stream = peerConnectionFactory.createLocalMediaStream("102")
         stream.addTrack(localAudioTrack)
         stream.addTrack(localVideoTrack)
-        localPeer.addStream(stream)
+        localPeer?.addStream(stream)
 
-        localPeer.createOffer(object : CustomSdpObserver("localCreateOffer") {
+        localPeer?.createOffer(object : CustomSdpObserver("localCreateOffer") {
             override fun onCreateSuccess(sessionDescription: SessionDescription?) {
                 super.onCreateSuccess(sessionDescription)
-
+                localPeer?.setLocalDescription(CustomSdpObserver("localSetLocalDesc"), sessionDescription)
+                remotePeer?.setRemoteDescription(CustomSdpObserver("remoteSetRemoteDesc"), sessionDescription)
+                remotePeer?.createAnswer(object : CustomSdpObserver("remoteCreateOffer") {
+                    override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                        super.onCreateSuccess(sessionDescription)
+                        localPeer?.setRemoteDescription(CustomSdpObserver("localSetRemoteDesc"), sessionDescription)
+                        remotePeer?.setLocalDescription(CustomSdpObserver("remoteSetLocalDesc"), sessionDescription)
+                    }
+                }, MediaConstraints())
             }
-        })
+        }, sdpConstraints)
     }
+
 
     private fun gotRemoteStream(mediaStream: MediaStream?) {
-
+        val videoTrack = mediaStream?.videoTracks?.first
+        val audioTrack = mediaStream?.audioTracks?.first
+        runOnUiThread {
+            try {
+                val remoteRenderer = VideoRenderer(remoteViewRenderer)
+                remoteViewRenderer.visibility = View.VISIBLE
+                videoTrack?.addRenderer(remoteRenderer)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
-    private fun onIceCandidateReceived(localPeer: PeerConnection, iceCandidate: IceCandidate?) {
-
+    private fun onIceCandidateReceived(peer: PeerConnection?, iceCandidate: IceCandidate?) {
+        if (peer == localPeer)
+            remotePeer?.addIceCandidate(iceCandidate)
+        else
+            localPeer?.addIceCandidate(iceCandidate)
     }
+
+    private fun hangup() {
+        localPeer?.close()
+        remotePeer?.close()
+        localPeer = null
+        remotePeer = null
+    }
+
+
+    fun Context.checkIsPermissionGranted(permission: String) =
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    fun Context.areAllPermissionsGranted(vararg permission: String) = permission.all { checkIsPermissionGranted(it) }
 
 }
